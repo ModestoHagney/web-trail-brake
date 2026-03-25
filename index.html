@@ -49,6 +49,41 @@
             flex-shrink: 0;
         }
 
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            height: 40px;
+            &[hidden] { display: none !important; }
+        }
+
+        .mode-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            height: 100%;
+        }
+
+        .icon-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            height: 36px; 
+            width: 42px;    
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.2rem; /* Clean sizing without bold distortion */
+            padding: 0;
+            transition: border-color 0.2s;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--accent-2);
+        }
+
         h1 {
             margin: 0;
             font-size: 1.5rem;
@@ -140,11 +175,6 @@
             gap: 6px;
         }
 
-        .axis-box.selected {
-            border-color: var(--accent);
-            background: rgba(98, 210, 162, 0.05);
-        }
-
         .pedal-meter {
             width: 10px;
             height: 60px;
@@ -166,15 +196,12 @@
             color: var(--muted);
         }
 
-.controls-panel {
+        .controls-panel {
+            position: relative;
             background: var(--panel);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 16px;
-            margin-bottom: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
         }
 
         .settings-row {
@@ -197,11 +224,6 @@
             font-size: 0.9rem;
         }
 
-        .input-group label {
-            color: var(--muted);
-            white-space: nowrap;
-        }
-
         .input-group input[type="number"] {
             background: #07080b;
             border: 1px solid var(--border);
@@ -212,7 +234,6 @@
             font-family: inherit;
         }
 
-        /* Styling for the locked/disabled inputs */
         .input-group input[type="number"]:disabled {
             background: #11141b;
             color: var(--muted);
@@ -221,22 +242,17 @@
             opacity: 0.6;
         }
 
-        .input-group input[type="number"]:focus:not(:disabled) {
-            border-color: var(--accent-2);
-            outline: none;
-        }
-
         #practice-view {
             display: none;
             flex-direction: column;
+            flex: 1;
             width: 100%;
-            height: 600px;
-            max-height: 70vh;
-            margin: 0;
+            position: relative;
+            gap: 16px;
         }
 
         .canvas-container {
-            flex: 1;
+            height: 500px;
             background: #07080b;
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -253,14 +269,25 @@
             display: block;
         }
 
-        [hidden] {
-            display: none !important;
+        .mode-btn {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0 14px; /* Removed vertical padding, using height instead */
+            height: 36px;    /* Matches icon-btn height exactly */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: background 0.2s, border-color 0.2s;
         }
 
-        .divider {
-            width: 1px;
-            height: 24px;
-            background: var(--border);
+        .mode-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(98, 210, 162, 0.05);
         }
     </style>
 </head>
@@ -268,27 +295,34 @@
     <div class="shell">
         <div class="header">
             <h1 id="page-title">Brake Pedal Setup</h1>
-            <button id="change-device-btn" hidden>Change Axis</button>
+            
+            <div id="mode-toolbar" class="toolbar" hidden>
+                <div class="mode-container">
+                    <button id="btn-graph" class="mode-btn active">Graph</button>
+                    <button id="btn-flappy" class="mode-btn">Flappy</button>
+                </div>
+                <button id="change-device-btn" class="icon-btn">↺</button>
+            </div>
         </div>
 
         <div id="setup-view"></div>
 
         <div id="practice-view">
-            <div class="controls-panel">
-                
+            <div class="canvas-container">
+                <canvas id="telemetry-canvas"></canvas>
+            </div>
+
+            <div id="graph-controls" class="controls-panel">
                 <div class="settings-row">
                     <div class="row-label">Brake Pressure</div>
-                    
                     <div class="input-group">
                         <input type="checkbox" id="rand-p-toggle">
                         <label for="rand-p-toggle">Randomize</label>
                     </div>
-
                     <div class="input-group">
                         <label for="p-swing">Min:</label>
                         <input type="number" id="p-swing" value="50" min="1" max="100" step="1" disabled>%
                     </div>
-
                     <div class="input-group">
                         <label for="target-pressure">Max:</label>
                         <input type="number" id="target-pressure" value="80" min="1" max="100" step="1">%
@@ -297,42 +331,49 @@
 
                 <div class="settings-row">
                     <div class="row-label">Target Duration</div>
-
                     <div class="input-group">
                         <input type="checkbox" id="rand-t-toggle">
                         <label for="rand-t-toggle">Randomize</label>
                     </div>
-
                     <div class="input-group">
                         <label for="t-swing">Min:</label>
                         <input type="number" id="t-swing" value="2.0" min="0.5" max="10" step="0.1" disabled>s
                     </div>
-
                     <div class="input-group">
                         <label for="target-time">Max:</label>
                         <input type="number" id="target-time" value="4.0" min="0.5" max="10" step="0.1">s
                     </div>
                 </div>
             </div>
-
-            <div class="canvas-container">
-                <canvas id="telemetry-canvas"></canvas>
-            </div>
         </div>
     </div>
 
-<script>
+    <script>
         const setupView = document.getElementById('setup-view');
         const practiceView = document.getElementById('practice-view');
         const pageTitle = document.getElementById('page-title');
         const changeDeviceBtn = document.getElementById('change-device-btn');
         const canvas = document.getElementById('telemetry-canvas');
         const ctx = canvas.getContext('2d');
+        const modeToolbar = document.getElementById('mode-toolbar');
 
         const state = {
             view: 'SETUP',
+            activeMode: 'GRAPH',
             selectedDeviceIndex: null,
             selectedAxisIndex: null
+        };
+
+        const flappyState = {
+            playerY: 0,
+            playerX: 150,
+            playerSize: 6,       // Matches your telemetry dot size
+            gates: [],
+            gateSpeed: 3,       // Slightly slower
+            gateWidth: 4,       // Super thin, like your target lines
+            gateGap: 90,        // Tighter gaps (was 160)
+            score: 0,
+            hiScore: 0
         };
 
         const restingBaselines = {};
@@ -340,7 +381,6 @@
         const windowSizeMs = 10000; 
         const pastOffsetMs = 5000;  
 
-        // Separate tracking for Pressure vs Time loops so they don't break each other
         const runState = {
             lastPLoopId: -1,
             lastTLoopId: -1,
@@ -386,17 +426,18 @@
 
             if (viewMode === 'SETUP') {
                 pageTitle.textContent = "Brake Pedal Setup";
-                changeDeviceBtn.hidden = true;
+                modeToolbar.hidden = true; // Hides the whole row
                 setupView.style.display = 'grid';
                 practiceView.style.display = 'none';
                 renderSetup();
             } else {
                 pageTitle.textContent = "Telemetry View";
-                changeDeviceBtn.hidden = false;
+                modeToolbar.hidden = false; // Shows the whole row
                 setupView.style.display = 'none';
                 practiceView.style.display = 'flex';
                 telemetryData = []; 
                 resizeCanvas();
+                switchMode('GRAPH'); 
             }
         }
 
@@ -478,6 +519,15 @@
 
         window.addEventListener('resize', resizeCanvas);
 
+        function getSelectedAxisValue() {
+            const gamepads = getConnectedGamepads();
+            const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
+            if (gp && state.selectedAxisIndex !== null) {
+                return normalizeAxisValue(gp.axes[state.selectedAxisIndex]) / 100; // Returns normalized 0.0 to 1.0
+            }
+            return 0;
+        }
+
         function drawCanvas(now, currentBrake) {
             const w = canvas.width;
             const h = canvas.height;
@@ -485,7 +535,6 @@
             ctx.clearRect(0, 0, w, h);
 
             const baseP = Number(document.getElementById('target-pressure').value) || 80;
-
             const pixelsPerSec = w / (windowSizeMs / 1000);
 
             // 1. Draw Grid
@@ -517,25 +566,22 @@
             }
 
             // 2. Readout
-            ctx.fillStyle = '#f3f5f7';
+            ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 20px sans-serif';
             ctx.textAlign = 'left';
-            ctx.fillText(`${Math.round(currentBrake)}%`, 20, 30);
+            ctx.fillText(`${Math.round(currentBrake)}%`, 20, 40);
 
-            // 3. Roll Randomizers on Separate Clocks
             const masterSec = now / 1000;
 
-            // Pressure Loop Calculation
+            // Pressure Randomizer
             const pIntervalSec = runState.currentTime; 
             const pLoopId = Math.floor(masterSec / pIntervalSec);
 
             if (pLoopId > runState.lastPLoopId) {
                 runState.lastPLoopId = pLoopId;
-
                 const pCheck = document.getElementById('rand-p-toggle');
                 if (pCheck && pCheck.checked) {
-                    const pMin = Number(document.getElementById('p-swing').value) || 50; // Using swing box as the Floor (Min)
-                    
+                    const pMin = Number(document.getElementById('p-swing').value) || 50;
                     const min = Math.min(pMin, baseP);
                     const max = Math.max(pMin, baseP);
                     runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
@@ -544,25 +590,20 @@
                 }
             }
 
-            // Time Loop Calculation (Uses Base Time for loop tracking)
+            // Time Randomizer
             const baseT = Number(document.getElementById('target-time').value) || 4.0;
-            const tIntervalSec = baseT;
-            const tLoopId = Math.floor(masterSec / tIntervalSec);
+            const tLoopId = Math.floor(masterSec / baseT);
 
             if (tLoopId > runState.lastTLoopId) {
                 runState.lastTLoopId = tLoopId;
-
                 const tCheck = document.getElementById('rand-t-toggle');
                 if (tCheck && tCheck.checked) {
-                    const tMin = Number(document.getElementById('t-swing').value) || 2.0; // Using swing box as Floor (Min)
-                    
+                    const tMin = Number(document.getElementById('t-swing').value) || 2.0;
                     const min = Math.min(tMin, baseT);
                     const max = Math.max(tMin, baseT);
-
                     const minScaled = Math.floor(min * 10);
                     const maxScaled = Math.floor(max * 10);
-                    const rolledScaled = Math.floor(Math.random() * (maxScaled - minScaled + 1)) + minScaled;
-                    runState.currentTime = rolledScaled / 10;
+                    runState.currentTime = (Math.floor(Math.random() * (maxScaled - minScaled + 1)) + minScaled) / 10;
                 } else {
                     runState.currentTime = baseT;
                 }
@@ -631,6 +672,160 @@
             }
         }
 
+        let flappyFrame = 0;
+
+        function flappyTick() {
+            if (state.activeMode !== 'FLAPPY' || state.view !== 'PRACTICE') return;
+
+            const now = performance.now();
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // 1. Get Live Brake Pedal (0 to 100)
+            let currentBrake = 0;
+            const gamepads = getConnectedGamepads();
+            const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
+            if (gp && state.selectedAxisIndex !== null) {
+                currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
+            }
+
+            // 2. Draw Your Standard Background Grid (No Text Readouts)
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#1a1f2e';
+            
+            [0.25, 0.5, 0.75].forEach(pct => {
+                ctx.beginPath();
+                ctx.moveTo(0, h - h * pct);
+                ctx.lineTo(w, h - h * pct);
+                ctx.stroke();
+            });
+
+            const pixelsPerSec = w / (windowSizeMs / 1000);
+            const halfWindowSec = (windowSizeMs / 1000) / 2;
+            for (let sec = -Math.floor(halfWindowSec); sec <= Math.floor(halfWindowSec); sec++) {
+                const x = (w / 2) + (sec * pixelsPerSec);
+                if (x > 20 && x < w - 20) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, h); 
+                    ctx.stroke();
+                }
+            }
+
+            // 3. Draw Your Standard Blue Trace (Centered horizontally)
+            const cutoff = now - pastOffsetMs;
+            while (telemetryData.length > 0 && telemetryData[0].time < cutoff) {
+                telemetryData.shift();
+            }
+
+            telemetryData.push({ time: now, val: currentBrake });
+
+            if (telemetryData.length > 1) {
+                ctx.strokeStyle = '#3aa0ff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+
+                let leadX = 0;
+                let leadY = 0;
+
+                telemetryData.forEach((pt, idx) => {
+                    const timeDiff = pt.time - (now - pastOffsetMs);
+                    const x = (timeDiff / windowSizeMs) * w;
+                    const y = h - (pt.val / 100) * h;
+
+                    if (idx === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+
+                    if (idx === telemetryData.length - 1) {
+                        leadX = x;
+                        leadY = y;
+                    }
+                });
+                ctx.stroke();
+
+                ctx.fillStyle = '#3aa0ff';
+                ctx.beginPath();
+                ctx.arc(leadX, leadY, 6, 0, Math.PI * 2); 
+                ctx.fill();
+            }
+
+            // 4. Spawn Gates
+            flappyFrame++;
+            if (flappyFrame % 180 === 0) {
+                const minGapY = 20; 
+                const maxGapY = h - flappyState.gateGap - 20; 
+                const gapTop = Math.random() * (maxGapY - minGapY) + minGapY;
+
+                flappyState.gates.push({
+                    x: w,
+                    gapTop: gapTop,
+                    gapBottom: gapTop + flappyState.gateGap,
+                    passed: false
+                });
+            }
+
+            // 5. Draw Red Gates & Check Collision
+            ctx.strokeStyle = '#ff8270'; 
+            ctx.lineWidth = 2; // Exact same thickness as the vertical grid line
+
+            for (let i = flappyState.gates.length - 1; i >= 0; i--) {
+                const gate = flappyState.gates[i];
+                gate.x -= flappyState.gateSpeed;
+
+                ctx.beginPath();
+                ctx.moveTo(gate.x, 0);
+                ctx.lineTo(gate.x, gate.gapTop);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(gate.x, gate.gapBottom);
+                ctx.lineTo(gate.x, h);
+                ctx.stroke();
+
+                const leadX = w / 2;
+                const leadY = h - (currentBrake / 100) * h;
+
+                const hitHorizontally = (leadX > gate.x - 4) && (leadX < gate.x + 4);
+                const hitVertically = (leadY < gate.gapTop) || (leadY > gate.gapBottom);
+
+                if (hitHorizontally && hitVertically) {
+                    if (flappyState.score > flappyState.hiScore) flappyState.hiScore = flappyState.score;
+                    flappyState.gates = [];
+                    flappyState.score = 0;
+                }
+
+                if (!gate.passed && gate.x < leadX) {
+                    flappyState.score++;
+                    gate.passed = true;
+                }
+
+                if (gate.x < 0) {
+                    flappyState.gates.splice(i, 1);
+                }
+            }
+
+            // 6. Standardized Flappy Readout (Matches Graph % location)
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'left';
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillText(`Score: ${flappyState.score}`, 20, 40);
+            
+            ctx.font = '14px sans-serif';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.fillText(`Best: ${flappyState.hiScore}`, 20, 65);
+
+            requestAnimationFrame(flappyTick);
+        }
+
+        function resetFlappyGame() {
+            flappyState.gates = [];
+            flappyState.score = 0;
+            flappyFrame = 0;
+            requestAnimationFrame(flappyTick);
+        }
+
         function tick() {
             const gamepads = getConnectedGamepads();
             const now = performance.now();
@@ -659,20 +854,41 @@
                         });
                     }
                 });
-            } else if (state.view === 'PRACTICE') {
+            } else if (state.view === 'PRACTICE' && state.activeMode === 'GRAPH') {
                 let currentBrake = 0;
                 const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
                 if (gp && state.selectedAxisIndex !== null) {
                     currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
                 }
-
                 drawCanvas(now, currentBrake);
             }
 
             requestAnimationFrame(tick);
         }
 
-        changeDeviceBtn.addEventListener('click', () => setView('SETUP'));
+        document.getElementById('btn-graph').addEventListener('pointerdown', () => switchMode('GRAPH'));
+        document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
+
+        function switchMode(newMode) {
+            state.activeMode = newMode;
+            
+            const controls = document.getElementById('graph-controls');
+            document.getElementById('btn-graph').classList.toggle('active', newMode === 'GRAPH');
+            document.getElementById('btn-flappy').classList.toggle('active', newMode === 'FLAPPY');
+
+            if (newMode === 'FLAPPY') {
+                controls.style.visibility = 'hidden'; // Blanks it out, keeps layout still
+                flappyState.gates = [];
+                flappyState.score = 0;
+                flappyFrame = 0;
+                requestAnimationFrame(flappyTick);
+            } else {
+                controls.style.visibility = 'visible'; // Brings it back
+                telemetryData = []; 
+            }
+        }
+
+        changeDeviceBtn.addEventListener('pointerdown', () => setView('SETUP'));
 
         window.addEventListener("gamepadconnected", () => {
             if (state.view === 'SETUP') renderSetup();
