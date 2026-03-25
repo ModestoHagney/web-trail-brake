@@ -75,7 +75,7 @@
             width: 42px;    
             border-radius: 6px;
             cursor: pointer;
-            font-size: 1.2rem; /* Clean sizing without bold distortion */
+            font-size: 1.2rem;
             padding: 0;
             transition: border-color 0.2s;
         }
@@ -87,6 +87,11 @@
         h1 {
             margin: 0;
             font-size: 1.5rem;
+            
+            /* Prevents blue highlighting on click */
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10+ */
+            user-select: none; /* Modern browsers */
         }
 
         button {
@@ -299,8 +304,8 @@
             <div id="mode-toolbar" class="toolbar" hidden>
                 <div class="mode-container">
                     <button id="btn-graph" class="mode-btn active">Graph</button>
-                    <button id="btn-flappy" class="mode-btn">Flappy</button>
-                </div>
+                    <button id="btn-hold" class="mode-btn">Hold</button>
+                    <button id="btn-flappy" class="mode-btn">Flappy</button> </div>
                 <button id="change-device-btn" class="icon-btn">↺</button>
             </div>
         </div>
@@ -344,6 +349,14 @@
                         <input type="number" id="target-time" value="4.0" min="0.5" max="10" step="0.1">s
                     </div>
                 </div>
+
+                <div class="settings-row">
+                    <div class="row-label">Hold Tolerance</div>
+                    <div class="input-group"></div> <div class="input-group"></div> <div class="input-group">
+                        <label for="hold-tolerance">± Range:</label>
+                        <input type="number" id="hold-tolerance" value="2" min="0" max="10" step="1">%
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -351,7 +364,6 @@
     <script>
         const setupView = document.getElementById('setup-view');
         const practiceView = document.getElementById('practice-view');
-        const pageTitle = document.getElementById('page-title');
         const changeDeviceBtn = document.getElementById('change-device-btn');
         const canvas = document.getElementById('telemetry-canvas');
         const ctx = canvas.getContext('2d');
@@ -387,6 +399,10 @@
             currentPeak: 80,
             currentTime: 4.0
         };
+
+        const pageTitle = document.getElementById('page-title');
+        let secretClicks = 0;
+        let secretTimer = null;
 
         function getConnectedGamepads() {
             return Array.from(navigator.getGamepads()).filter(Boolean);
@@ -534,7 +550,7 @@
 
             ctx.clearRect(0, 0, w, h);
 
-            const baseP = Number(document.getElementById('target-pressure').value) || 80;
+            const baseP = state.activeMode === 'HOLD' ? runState.currentPeak : (Number(document.getElementById('target-pressure').value) || 80);
             const pixelsPerSec = w / (windowSizeMs / 1000);
 
             // 1. Draw Grid
@@ -610,28 +626,39 @@
             }
 
             // 4. Draw Horizontal Target
-            ctx.strokeStyle = 'rgba(255, 196, 92, 0.4)'; 
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 6]); 
             const targetY = h - (runState.currentPeak / 100) * h;
+
+            ctx.strokeStyle = runState.holdStartTime ? '#62d2a2' : 'rgba(255, 196, 92, 0.4)';  
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);  
             ctx.beginPath();
             ctx.moveTo(0, targetY);
             ctx.lineTo(w, targetY);
             ctx.stroke();
-            ctx.setLineDash([]); 
+            ctx.setLineDash([]);
 
-            // 5. Draw Vertical Red Target Line
-            const lineTimeSec = (pLoopId + 1) * runState.currentTime; 
-            const timeDiffMs = (lineTimeSec - masterSec) * 1000;
-            const targetX = (w / 2) + (timeDiffMs / windowSizeMs) * w;
+            // 5. Draw Vertical Red Target Line (Only in Graph Mode)
+            if (state.activeMode === 'GRAPH') {
+                const lineTimeSec = (pLoopId + 1) * runState.currentTime; 
+                const timeDiffMs = (lineTimeSec - masterSec) * 1000;
+                const targetX = (w / 2) + (timeDiffMs / windowSizeMs) * w;
 
-            if (targetX > 0 && targetX < w) {
-                ctx.strokeStyle = '#ff8270'; 
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(targetX, 0);
-                ctx.lineTo(targetX, h); 
-                ctx.stroke();
+                if (targetX > 0 && targetX < w) {
+                    ctx.strokeStyle = '#ff8270'; 
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(targetX, 0);
+                    ctx.lineTo(targetX, h); 
+                    ctx.stroke();
+                }
+            }
+
+            // Draw Target % in Top Center (Only in Hold Mode)
+            if (state.activeMode === 'HOLD') {
+                ctx.fillStyle = '#ffc45c'; // Yellow
+                ctx.font = 'bold 32px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${runState.currentPeak}%`, w / 2, 50);
             }
 
             // 6. User Trace
@@ -665,9 +692,27 @@
                 });
                 ctx.stroke();
 
+                // --- VISUAL PROGRESS RING ---
+                if (state.activeMode === 'HOLD' && runState.holdStartTime && runState.requiredHoldTime) {
+                    const elapsed = (now - runState.holdStartTime) / 1000;
+                    const pct = Math.min(elapsed / runState.requiredHoldTime, 1.0);
+
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(leadX, leadY, 14, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#62d2a2'; // Green filling clockwise
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(leadX, leadY, 14, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * pct));
+                    ctx.stroke();
+                }
+
                 ctx.fillStyle = '#3aa0ff';
                 ctx.beginPath();
-                ctx.arc(leadX, leadY, 6, 0, Math.PI * 2); 
+                ctx.arc(leadX, leadY, 6, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -854,37 +899,89 @@
                         });
                     }
                 });
-            } else if (state.view === 'PRACTICE' && state.activeMode === 'GRAPH') {
-                let currentBrake = 0;
-                const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
-                if (gp && state.selectedAxisIndex !== null) {
-                    currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
-                }
-                drawCanvas(now, currentBrake);
+
+            } else if (state.view === 'PRACTICE' && (state.activeMode === 'GRAPH' || state.activeMode === 'HOLD')) {
+            let currentBrake = 0;
+            const gamepads = getConnectedGamepads();
+            const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
+            if (gp && state.selectedAxisIndex !== null) {
+                currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
             }
+            
+            drawCanvas(now, currentBrake);
+
+            if (state.activeMode === 'HOLD') {
+                const target = runState.currentPeak;
+                
+                // 1. Read Live Tolerance from UI (defaults to 3 if empty)
+                const tolerance = Number(document.getElementById('hold-tolerance')?.value) || 3; 
+
+                if (currentBrake >= (target - tolerance) && currentBrake <= (target + tolerance)) {
+                    if (!runState.holdStartTime) {
+                        runState.holdStartTime = now; 
+                    } else {
+                        const elapsed = (now - runState.holdStartTime) / 1000;
+                        
+                        // 2. Read Time Target bounds from UI
+                        const tMin = Number(document.getElementById('t-swing').value) || 1.0;
+                        const tMax = Number(document.getElementById('target-time').value) || 3.0;
+                        const minT = Math.min(tMin, tMax);
+                        const maxT = Math.max(tMin, tMax);
+                        
+                        if (!runState.requiredHoldTime) {
+                            runState.requiredHoldTime = Math.random() * (maxT - minT) + minT;
+                        }
+
+                        if (elapsed >= runState.requiredHoldTime) {
+                            runState.holdStartTime = null; 
+                            runState.requiredHoldTime = null; 
+
+                            // 3. Roll a New Pressure Target (Minimum 15% Jump)
+                            const pMin = Number(document.getElementById('p-swing').value) || 40;
+                            const pMax = Number(document.getElementById('target-pressure').value) || 90;
+                            const minP = Math.min(pMin, pMax);
+                            const maxP = Math.max(pMin, pMax);
+
+                            let newPeak = target;
+                            let attempts = 0;
+                            
+                            while (Math.abs(newPeak - target) < 15 && attempts < 20) {
+                                newPeak = Math.floor(Math.random() * (maxP - minP + 1)) + minP;
+                                attempts++;
+                            }
+                            runState.currentPeak = newPeak;
+                        }
+                    }
+                } else {
+                    runState.holdStartTime = null; 
+                }
+            }
+        }
 
             requestAnimationFrame(tick);
         }
 
-        document.getElementById('btn-graph').addEventListener('pointerdown', () => switchMode('GRAPH'));
-        document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
-
         function switchMode(newMode) {
             state.activeMode = newMode;
-            
             const controls = document.getElementById('graph-controls');
+
             document.getElementById('btn-graph').classList.toggle('active', newMode === 'GRAPH');
+            document.getElementById('btn-hold').classList.toggle('active', newMode === 'HOLD');
             document.getElementById('btn-flappy').classList.toggle('active', newMode === 'FLAPPY');
 
+            telemetryData = []; 
+
             if (newMode === 'FLAPPY') {
-                controls.style.visibility = 'hidden'; // Blanks it out, keeps layout still
+                controls.style.visibility = 'hidden'; // Only hide for Flappy
+                
                 flappyState.gates = [];
                 flappyState.score = 0;
                 flappyFrame = 0;
+                
                 requestAnimationFrame(flappyTick);
             } else {
-                controls.style.visibility = 'visible'; // Brings it back
-                telemetryData = []; 
+                controls.style.visibility = 'visible'; // Keep visible for GRAPH and HOLD
+                runState.holdStartTime = null; 
             }
         }
 
@@ -901,13 +998,10 @@
         setView('SETUP');
         tick();
 
-        document.getElementById('rand-p-toggle').addEventListener('change', (e) => {
-            document.getElementById('p-swing').disabled = !e.target.checked;
-        });
+        document.getElementById('btn-graph').addEventListener('pointerdown', () => switchMode('GRAPH'));
+        document.getElementById('btn-hold').addEventListener('pointerdown', () => switchMode('HOLD'));
+        document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
 
-        document.getElementById('rand-t-toggle').addEventListener('change', (e) => {
-            document.getElementById('t-swing').disabled = !e.target.checked;
-        });
     </script>
 </body>
 </html>
