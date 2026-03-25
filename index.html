@@ -239,171 +239,166 @@
         <div id="app"></div>
     </div>
 
-    <script>
-        const app = document.getElementById("app");
-        const changeDeviceButton = document.getElementById("changeDevice");
+<script>
+    const app = document.getElementById("app");
+    const changeDeviceButton = document.getElementById("changeDevice");
 
-        const state = {
-            selectedDeviceIndex: null,
-            selectedAxisIndex: null
-        };
+    const state = {
+        selectedDeviceIndex: null,
+        selectedAxisIndex: null
+    };
 
-        let lastRenderAt = 0;
+    function getConnectedGamepads() {
+        return Array.from(navigator.getGamepads()).filter(Boolean);
+    }
 
-        function getConnectedGamepads() {
-            return Array.from(navigator.getGamepads()).filter(Boolean);
-        }
+    function normalizeAxisValue(value) {
+        return ((value + 1) / 2) * 100;
+    }
 
-        function normalizeAxisValue(value) {
-            return ((value + 1) / 2) * 100;
-        }
+    function shortenDeviceName(name) {
+        return name.split("(")[0].trim();
+    }
 
-        function shortenDeviceName(name) {
-            return name.split("(")[0].trim();
-        }
+    function getControllerColor(index) {
+        const palette = [
+            "90, 201, 255",
+            "255, 130, 112",
+            "116, 232, 171",
+            "255, 196, 92",
+            "187, 153, 255",
+            "255, 138, 205"
+        ];
+        return palette[index % palette.length];
+    }
 
-        function getControllerColor(index) {
-            const palette = [
-                "90, 201, 255",
-                "255, 130, 112",
-                "116, 232, 171",
-                "255, 196, 92",
-                "187, 153, 255",
-                "255, 138, 205"
-            ];
+    // --- 1. RENDER LAYOUT (Only when structure changes) ---
+    function renderLayout() {
+        const gamepads = getConnectedGamepads();
+        const maxAxes = gamepads.length ? Math.max(...gamepads.map((gp) => gp.axes.length)) : 3;
+        const cardWidth = Math.max(180, Math.min(620, 132 + maxAxes * 42));
 
-            return palette[index % palette.length];
-        }
+        app.style.setProperty("--card-width", `${cardWidth}px`);
+        changeDeviceButton.hidden = state.selectedDeviceIndex === null;
 
-        function getDeviceActivity(axes) {
-            if (!axes.length) return 0;
-            const total = axes.reduce((sum, value) => sum + Math.abs(value), 0);
-            return total / axes.length; // 0..1
-        }
-
-        function render() {
-            const gamepads = getConnectedGamepads();
-            const maxAxes = gamepads.length ? Math.max(...gamepads.map((gp) => gp.axes.length)) : 3;
-            const cardWidth = Math.max(180, Math.min(620, 132 + maxAxes * 42));
-
-            app.style.setProperty("--card-width", `${cardWidth}px`);
-
-            changeDeviceButton.hidden = state.selectedDeviceIndex === null;
-
-            if (gamepads.length === 0) {
-                app.innerHTML = `
-                    <div class="card">
-                        <div class="device-name">No controllers detected</div>
-                        <p class="subtle">Press a pedal or button to wake the device up.</p>
-                    </div>
-                `;
-                return;
-            }
-
+        if (gamepads.length === 0) {
             app.innerHTML = `
-                <div class="grid">
-                    ${gamepads.map((gp) => {
-                        const isSelected = gp.index === state.selectedDeviceIndex;
-                        const activity = getDeviceActivity(gp.axes);
-                        const bgAlpha = isSelected ? "0.18" : (0.08 + activity * 0.62).toFixed(3);
-                        const deviceColor = getControllerColor(gp.index);
-                        const glowAlpha = isSelected ? "0.28" : (0.18 + activity * 0.58).toFixed(3);
-
-                        const axisMarkup = isSelected
-                            ? `
-                                <div class="axis-list vertical" style="--axis-count: ${gp.axes.length};">
-                                    ${gp.axes.map((value, axisIndex) => {
-                                        const selectedAxis = axisIndex === state.selectedAxisIndex ? "selected" : "";
-                                        return `
-                                            <div class="axis-row vertical ${selectedAxis}" data-axis-index="${axisIndex}" data-device-index="${gp.index}">
-                                                <div class="pedal-meter">
-                                                    <div class="pedal-fill" style="height: ${normalizeAxisValue(value)}%"></div>
-                                                </div>
-                                                <div class="axis-label">Axis ${axisIndex}</div>
-                                            </div>
-                                        `;
-                                    }).join("")}
-                                </div>
-                            `
-                            : "";
-
-                        return `
-                            <div
-                                class="card ${isSelected ? "selected" : ""}"
-                                data-device-index="${gp.index}"
-                                style="
-                                    background:
-                                        radial-gradient(circle at 80% 8%, rgba(${deviceColor},${bgAlpha}), transparent 62%),
-                                        radial-gradient(circle at 15% 95%, rgba(${deviceColor},${(bgAlpha * 0.35).toFixed(3)}), transparent 58%),
-                                        linear-gradient(180deg, rgba(27,31,39,0.95), rgba(35,41,54,0.95));
-                                    border-color: rgba(${deviceColor}, ${isSelected ? "0.78" : "0.38"});
-                                    box-shadow: ${isSelected ? `0 0 0 2px rgba(${deviceColor}, 0.9), 0 14px 30px rgba(${deviceColor}, 0.32)` : `0 0 0 1px rgba(${deviceColor}, 0.25), 0 0 20px rgba(${deviceColor}, ${glowAlpha})`};
-                            "
-                            >
-                                <div class="title-row">
-                                    <div class="device-name">${shortenDeviceName(gp.id) || `Device ${gp.index}`}</div>
-                                    <div class="badge">${gp.axes.length} axes</div>
-                                </div>
-
-                                ${isSelected ? `<p class="subtle" style="margin: 12px 0 0;">Pick the brake axis below.</p>` : ""}
-                                ${axisMarkup}
-                            </div>
-                        `;
-                    }).join("")}
+                <div class="card">
+                    <div class="device-name">No controllers detected</div>
+                    <p class="subtle">Press a pedal or button to wake the device up.</p>
                 </div>
+            `;
+            return;
+        }
 
-                ${
-                    state.selectedDeviceIndex !== null && state.selectedAxisIndex !== null
+        app.innerHTML = `
+            <div class="grid">
+                ${gamepads.map((gp) => {
+                    const isSelected = gp.index === state.selectedDeviceIndex;
+                    const deviceColor = getControllerColor(gp.index);
+
+                    const axisMarkup = isSelected
                         ? `
-                            <div class="result">
-                                <strong>Ready:</strong>
-                                using device ${state.selectedDeviceIndex}, axis ${state.selectedAxisIndex}
+                            <div class="axis-list vertical" style="--axis-count: ${gp.axes.length};">
+                                ${gp.axes.map((_, axisIndex) => {
+                                    const selectedAxis = axisIndex === state.selectedAxisIndex ? "selected" : "";
+                                    return `
+                                        <div class="axis-row vertical ${selectedAxis}" data-axis-index="${axisIndex}" data-device-index="${gp.index}">
+                                            <div class="pedal-meter">
+                                                <div class="pedal-fill" id="fill-${gp.index}-${axisIndex}" style="height: 0%"></div>
+                                            </div>
+                                            <div class="axis-label">Axis ${axisIndex}</div>
+                                        </div>
+                                    `;
+                                }).join("")}
                             </div>
                         `
-                        : ""
-                }
-            `;
+                        : "";
 
-            app.querySelectorAll(".card[data-device-index]").forEach((card) => {
-                card.addEventListener("pointerdown", (event) => {
-                    if (event.target.closest(".axis-row")) return;
-                    const deviceIndex = Number(card.dataset.deviceIndex);
+                    return `
+                        <div
+                            class="card ${isSelected ? "selected" : ""}"
+                            data-device-index="${gp.index}"
+                            style="
+                                background: linear-gradient(180deg, rgba(27,31,39,0.95), rgba(35,41,54,0.95));
+                                border-color: rgba(${deviceColor}, ${isSelected ? "0.78" : "0.38"});
+                                box-shadow: ${isSelected ? `0 0 0 2px rgba(${deviceColor}, 0.9), 0 14px 30px rgba(${deviceColor}, 0.32)` : `0 0 0 1px rgba(${deviceColor}, 0.25)`};
+                        ">
+                            <div class="title-row">
+                                <div class="device-name">${shortenDeviceName(gp.id) || `Device ${gp.index}`}</div>
+                                <div class="badge">${gp.axes.length} axes</div>
+                            </div>
+                            ${isSelected ? `<p class="subtle" style="margin: 12px 0 0;">Pick the brake axis below.</p>` : ""}
+                            ${axisMarkup}
+                        </div>
+                    `;
+                }).join("")}
+            </div>
 
-                    if (state.selectedDeviceIndex !== deviceIndex) {
-                        state.selectedDeviceIndex = deviceIndex;
-                        state.selectedAxisIndex = null;
-                        render();
-                    }
-                });
-            });
-
-            app.querySelectorAll(".axis-row[data-axis-index]").forEach((row) => {
-                row.addEventListener("pointerdown", () => {
-                    state.selectedDeviceIndex = Number(row.dataset.deviceIndex);
-                    state.selectedAxisIndex = Number(row.dataset.axisIndex);
-                    render();
-                });
-            });
-        }
-
-        function pollGamepads(timestamp) {
-            if (!lastRenderAt || timestamp - lastRenderAt > 50) {
-                render();
-                lastRenderAt = timestamp;
+            ${state.selectedDeviceIndex !== null && state.selectedAxisIndex !== null
+                ? `
+                    <div class="result">
+                        <strong>Ready:</strong> using device ${state.selectedDeviceIndex}, axis ${state.selectedAxisIndex}
+                    </div>
+                `
+                : ""
             }
-            requestAnimationFrame(pollGamepads);
-        }
+        `;
 
-        changeDeviceButton.addEventListener("click", () => {
-            state.selectedDeviceIndex = null;
-            state.selectedAxisIndex = null;
-            render();
+        // Bind Events
+        app.querySelectorAll(".card[data-device-index]").forEach((card) => {
+            card.addEventListener("pointerdown", (event) => {
+                if (event.target.closest(".axis-row")) return;
+                const deviceIndex = Number(card.dataset.deviceIndex);
+
+                if (state.selectedDeviceIndex !== deviceIndex) {
+                    state.selectedDeviceIndex = deviceIndex;
+                    state.selectedAxisIndex = null;
+                    renderLayout(); // Re-structure
+                }
+            });
         });
 
-        window.addEventListener("gamepadconnected", render);
-        window.addEventListener("gamepaddisconnected", render);
+        app.querySelectorAll(".axis-row[data-axis-index]").forEach((row) => {
+            row.addEventListener("pointerdown", () => {
+                state.selectedDeviceIndex = Number(row.dataset.deviceIndex);
+                state.selectedAxisIndex = Number(row.dataset.axisIndex);
+                renderLayout(); // Re-structure to show the "Ready" banner
+            });
+        });
+    }
 
-        pollGamepads();
-    </script>
+    // --- 2. HIGH FREQUENCY ANIMATION LOOP (Only pushes CSS changes) ---
+    function tickPedals() {
+        const gamepads = getConnectedGamepads();
+
+        gamepads.forEach((gp) => {
+            // Only push values to screen if this device is the one expanded/selected
+            if (gp.index === state.selectedDeviceIndex) {
+                gp.axes.forEach((val, idx) => {
+                    const fillEl = document.getElementById(`fill-${gp.index}-${idx}`);
+                    if (fillEl) {
+                        fillEl.style.height = `${normalizeAxisValue(val)}%`;
+                    }
+                });
+            }
+        });
+
+        requestAnimationFrame(tickPedals);
+    }
+
+    changeDeviceButton.addEventListener("click", () => {
+        state.selectedDeviceIndex = null;
+        state.selectedAxisIndex = null;
+        renderLayout();
+    });
+
+    window.addEventListener("gamepadconnected", renderLayout);
+    window.addEventListener("gamepaddisconnected", renderLayout);
+
+    // Initial setup
+    renderLayout();
+    tickPedals();
+</script>
 </body>
 </html>
