@@ -300,24 +300,7 @@
 
             const masterSec = now / 1000;
 
-            // Pressure Randomizer
-            const pIntervalSec = runState.currentTime; 
-            const pLoopId = Math.floor(masterSec / pIntervalSec);
-
-            if (pLoopId > runState.lastPLoopId) {
-                runState.lastPLoopId = pLoopId;
-                const pCheck = document.getElementById('rand-p-toggle');
-                if (pCheck && pCheck.checked) {
-                    const pMin = Number(document.getElementById('p-swing').value) || 50;
-                    const min = Math.min(pMin, baseP);
-                    const max = Math.max(pMin, baseP);
-                    runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
-                } else {
-                    runState.currentPeak = baseP;
-                }
-            }
-
-            // Time Randomizer
+            // Time Randomizer (run this first so runState.currentTime is up-to-date)
             const baseT = Number(document.getElementById('target-time').value) || 4.0;
             const tLoopId = Math.floor(masterSec / baseT);
 
@@ -336,6 +319,23 @@
                 }
             }
 
+            // Pressure Randomizer (now uses the updated runState.currentTime)
+            const pIntervalSec = runState.currentTime;
+            const pLoopId = Math.floor(masterSec / pIntervalSec);
+
+            if (pLoopId > runState.lastPLoopId) {
+                runState.lastPLoopId = pLoopId;
+                const pCheck = document.getElementById('rand-p-toggle');
+                if (pCheck && pCheck.checked) {
+                    const pMin = Number(document.getElementById('p-swing').value) || 50;
+                    const min = Math.min(pMin, baseP);
+                    const max = Math.max(pMin, baseP);
+                    runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
+                } else {
+                    runState.currentPeak = baseP;
+                }
+            }
+
             // 4. Draw Horizontal Target
             const targetY = h - (runState.currentPeak / 100) * h;
 
@@ -350,7 +350,7 @@
 
             // 5. Draw Vertical Red Target Line (Trail mode only)
             if (state.activeMode === 'TRAIL') {
-                const lineTimeSec = (pLoopId + 1) * runState.currentTime; 
+                const lineTimeSec = (pLoopId + 1) * runState.currentTime;
                 const timeDiffMs = (lineTimeSec - masterSec) * 1000;
                 const targetX = (w / 2) + (timeDiffMs / windowSizeMs) * w;
 
@@ -365,7 +365,7 @@
             }
 
             // Draw Target % in Top Center (Hold mode only)
-            if (state.activeMode === 'HOLD') {
+            if (state.activeMode === 'HOLD' || state.activeMode === 'TRAIL') {
                 ctx.fillStyle = '#ffc45c';
                 ctx.font = 'bold 32px monospace';
                 ctx.textAlign = 'center';
@@ -699,6 +699,20 @@
             delete restingBaselines[e.gamepad.index];
             if (state.view === 'SETUP') renderSetup();
         });
+
+        function syncRandomControls() {
+            const pCheck = document.getElementById('rand-p-toggle');
+            const tCheck = document.getElementById('rand-t-toggle');
+            const pSwing = document.getElementById('p-swing');
+            const tSwing = document.getElementById('t-swing');
+
+            pSwing.disabled = !pCheck.checked;
+            tSwing.disabled = !tCheck.checked;
+        }
+
+        document.getElementById('rand-p-toggle').addEventListener('change', syncRandomControls);
+        document.getElementById('rand-t-toggle').addEventListener('change', syncRandomControls);
+        syncRandomControls();
 
         setView('SETUP');
         tick();
