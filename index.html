@@ -13,7 +13,7 @@
                 <div class="mode-container">
                     <button id="btn-trail" class="mode-btn active">Trail</button>
                     <button id="btn-hold" class="mode-btn">Hold</button>
-                    <button id="btn-flappy" class="mode-btn">Flappy</button>
+                    <button id="btn-flappy" class="mode-btn" style="display: none;">Flappy</button>
                 </div>
                 <button id="change-device-btn" class="icon-btn">↺</button>
             </div>
@@ -721,6 +721,20 @@
         document.getElementById('btn-hold').addEventListener('pointerdown', () => switchMode('HOLD'));
         document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
 
+    pageTitle.addEventListener('pointerdown', () => {
+        if (state.view !== 'PRACTICE') return;
+
+        secretClicks++;
+        clearTimeout(secretTimer);
+        secretTimer = setTimeout(() => {
+            secretClicks = 0;
+        }, 1000);
+
+        if (secretClicks === 5) {
+            secretClicks = 0;
+            switchMode('FLAPPY');
+        }
+    });
     </script>
 </body>
 </html>
