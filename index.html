@@ -59,7 +59,7 @@
                     </div>
                 </div>
 
-                <div class="settings-row">
+                <div class="settings-row" id="hold-tolerance-row">
                     <div class="row-label">Hold Tolerance</div>
                     <div class="input-group"></div>
                     <div class="input-group"></div>
@@ -73,18 +73,32 @@
     </div>
 
     <script>
+    // DOM Selectors
+
         const setupView = document.getElementById('setup-view');
         const practiceView = document.getElementById('practice-view');
         const changeDeviceBtn = document.getElementById('change-device-btn');
         const canvas = document.getElementById('telemetry-canvas');
         const ctx = canvas.getContext('2d');
         const modeToolbar = document.getElementById('mode-toolbar');
+        const pageTitle = document.getElementById('page-title');
+
+    // Global States
 
         const state = {
             view: 'SETUP',
             activeMode: 'TRAIL',
             selectedDeviceIndex: null,
             selectedAxisIndex: null
+        };
+
+        const runState = {
+            lastPLoopId: -1,
+            lastTLoopId: -1,
+            currentPeak: 80,
+            currentTime: 3.0,
+            holdStartTime: null,
+            requiredHoldTime: null
         };
 
         const flappyState = {
@@ -96,25 +110,19 @@
             gateWidth: 4,
             gateGap: 90,
             score: 0,
-            hiScore: 0
+            hiScore: 0,
+            frame: 0
         };
 
         const restingBaselines = {};
-        let telemetryData = []; 
         const windowSizeMs = 10000; 
-        const pastOffsetMs = 5000;  
+        const pastOffsetMs = 5000;
 
-        const runState = {
-            lastPLoopId: -1,
-            lastTLoopId: -1,
-            currentPeak: 80,
-            currentTime: 4.0
-        };
-
-        const pageTitle = document.getElementById('page-title');
+        let telemetryData = [];
         let secretClicks = 0;
         let secretTimer = null;
 
+        // Hardware
         function getConnectedGamepads() {
             return Array.from(navigator.getGamepads()).filter(Boolean);
         }
@@ -147,6 +155,17 @@
             if (avgDelta < 0.02) return 0;
             return Math.min(avgDelta * 2.5, 1.0);
         }
+
+        function getSelectedAxisValue() {
+            const gamepads = getConnectedGamepads();
+            const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
+            if (gp && state.selectedAxisIndex !== null) {
+                return normalizeAxisValue(gp.axes[state.selectedAxisIndex]) / 100;
+            }
+            return 0;
+        }
+
+        // View & UI
 
         function setView(viewMode) {
             state.view = viewMode;
@@ -237,6 +256,50 @@
             });
         }
 
+        function switchMode(newMode) {
+            state.activeMode = newMode;
+            const controls = document.getElementById('trail-controls');
+            const pCheck = document.getElementById('rand-p-toggle');
+            const holdRow = document.getElementById('hold-tolerance-row');
+
+            document.getElementById('btn-trail').classList.toggle('active', newMode === 'TRAIL');
+            document.getElementById('btn-hold').classList.toggle('active', newMode === 'HOLD');
+            document.getElementById('btn-flappy').classList.toggle('active', newMode === 'FLAPPY');
+
+            telemetryData = []; 
+
+            if (newMode === 'FLAPPY') {
+                controls.style.visibility = 'hidden';
+                flappyState.gates = [];
+                flappyState.score = 0;
+                flappyState.frame = 0;
+                requestAnimationFrame(flappyTick);
+            } else {
+                controls.style.visibility = 'visible';
+                if (newMode === 'HOLD') {
+                    holdRow.style.display = 'grid';
+                    pCheck.checked = true;
+                    pCheck.disabled = true;
+                    resetHoldState();
+                } else {
+                    holdRow.style.display = 'none';
+                    pCheck.disabled = false;
+                    runState.holdStartTime = null; 
+                }
+            }
+            syncRandomControls();
+        }
+
+        function syncRandomControls() {
+            const pCheck = document.getElementById('rand-p-toggle');
+            const tCheck = document.getElementById('rand-t-toggle');
+            const pSwing = document.getElementById('p-swing');
+            const tSwing = document.getElementById('t-swing');
+
+            pSwing.disabled = !pCheck.checked;
+            tSwing.disabled = !tCheck.checked;
+        }
+
         function resizeCanvas() {
             if (state.view !== 'PRACTICE') return;
             const rect = canvas.getBoundingClientRect();
@@ -244,16 +307,7 @@
             canvas.height = rect.height;
         }
 
-        window.addEventListener('resize', resizeCanvas);
-
-        function getSelectedAxisValue() {
-            const gamepads = getConnectedGamepads();
-            const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
-            if (gp && state.selectedAxisIndex !== null) {
-                return normalizeAxisValue(gp.axes[state.selectedAxisIndex]) / 100;
-            }
-            return 0;
-        }
+        // Canvas Drawing
 
         function drawCanvas(now, currentBrake) {
             const w = canvas.width;
@@ -300,39 +354,40 @@
 
             const masterSec = now / 1000;
 
-            // Time Randomizer (run this first so runState.currentTime is up-to-date)
-            const baseT = Number(document.getElementById('target-time').value) || 4.0;
-            const tLoopId = Math.floor(masterSec / baseT);
+            // Auto-Randomizer for TRAIL mode only
+            if (state.activeMode === 'TRAIL') {
+                const baseT = Number(document.getElementById('target-time').value) || 4.0;
+                const tLoopId = Math.floor(masterSec / baseT);
 
-            if (tLoopId > runState.lastTLoopId) {
-                runState.lastTLoopId = tLoopId;
-                const tCheck = document.getElementById('rand-t-toggle');
-                if (tCheck && tCheck.checked) {
-                    const tMin = Number(document.getElementById('t-swing').value) || 2.0;
-                    const min = Math.min(tMin, baseT);
-                    const max = Math.max(tMin, baseT);
-                    const minScaled = Math.floor(min * 10);
-                    const maxScaled = Math.floor(max * 10);
-                    runState.currentTime = (Math.floor(Math.random() * (maxScaled - minScaled + 1)) + minScaled) / 10;
-                } else {
-                    runState.currentTime = baseT;
+                if (tLoopId > runState.lastTLoopId) {
+                    runState.lastTLoopId = tLoopId;
+                    const tCheck = document.getElementById('rand-t-toggle');
+                    if (tCheck && tCheck.checked) {
+                        const tMin = Number(document.getElementById('t-swing').value) || 2.0;
+                        const min = Math.min(tMin, baseT);
+                        const max = Math.max(tMin, baseT);
+                        const minScaled = Math.floor(min * 10);
+                        const maxScaled = Math.floor(max * 10);
+                        runState.currentTime = (Math.floor(Math.random() * (maxScaled - minScaled + 1)) + minScaled) / 10;
+                    } else {
+                        runState.currentTime = baseT;
+                    }
                 }
-            }
 
-            // Pressure Randomizer (now uses the updated runState.currentTime)
-            const pIntervalSec = runState.currentTime;
-            const pLoopId = Math.floor(masterSec / pIntervalSec);
+                const pIntervalSec = runState.currentTime;
+                const pLoopId = Math.floor(masterSec / pIntervalSec);
 
-            if (pLoopId > runState.lastPLoopId) {
-                runState.lastPLoopId = pLoopId;
-                const pCheck = document.getElementById('rand-p-toggle');
-                if (pCheck && pCheck.checked) {
-                    const pMin = Number(document.getElementById('p-swing').value) || 50;
-                    const min = Math.min(pMin, baseP);
-                    const max = Math.max(pMin, baseP);
-                    runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
-                } else {
-                    runState.currentPeak = baseP;
+                if (pLoopId > runState.lastPLoopId) {
+                    runState.lastPLoopId = pLoopId;
+                    const pCheck = document.getElementById('rand-p-toggle');
+                    if (pCheck && pCheck.checked) {
+                        const pMin = Number(document.getElementById('p-swing').value) || 50;
+                        const min = Math.min(pMin, baseP);
+                        const max = Math.max(pMin, baseP);
+                        runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
+                    } else {
+                        runState.currentPeak = baseP;
+                    }
                 }
             }
 
@@ -350,6 +405,8 @@
 
             // 5. Draw Vertical Red Target Line (Trail mode only)
             if (state.activeMode === 'TRAIL') {
+                const pIntervalSec = runState.currentTime;
+                const pLoopId = Math.floor(masterSec / pIntervalSec);
                 const lineTimeSec = (pLoopId + 1) * runState.currentTime;
                 const timeDiffMs = (lineTimeSec - masterSec) * 1000;
                 const targetX = (w / 2) + (timeDiffMs / windowSizeMs) * w;
@@ -428,7 +485,33 @@
             }
         }
 
-        let flappyFrame = 0;
+        // Loops & Ticks
+
+        function resetFlappyGame() {
+            flappyState.gates = [];
+            flappyState.score = 0;
+            flappyFrame = 0;
+            requestAnimationFrame(flappyTick);
+        }
+
+        function resetHoldState() {
+            const pMin = Number(document.getElementById('p-swing').value) || 40;
+            const pMax = Number(document.getElementById('target-pressure').value) || 90;
+            const minP = Math.min(pMin, pMax);
+            const maxP = Math.max(pMin, pMax);
+
+            const oldPeak = runState.currentPeak;
+            let newPeak = oldPeak;
+            let attempts = 0;
+            // Ensure the next target is at least 15% away from the current one for variety
+            while (Math.abs(newPeak - oldPeak) < 15 && attempts < 20) {
+                newPeak = Math.floor(Math.random() * (maxP - minP + 1)) + minP;
+                attempts++;
+            }
+            runState.currentPeak = newPeak;
+            runState.holdStartTime = null;
+            runState.requiredHoldTime = null;
+        }
 
         function flappyTick() {
             if (state.activeMode !== 'FLAPPY' || state.view !== 'PRACTICE') return;
@@ -508,7 +591,7 @@
             }
 
             // 4. Spawn Gates
-            flappyFrame++;
+            flappyState.frame++;
             if (flappyFrame % 180 === 0) {
                 const minGapY = 20; 
                 const maxGapY = h - flappyState.gateGap - 20; 
@@ -575,13 +658,6 @@
             requestAnimationFrame(flappyTick);
         }
 
-        function resetFlappyGame() {
-            flappyState.gates = [];
-            flappyState.score = 0;
-            flappyFrame = 0;
-            requestAnimationFrame(flappyTick);
-        }
-
         function tick() {
             const gamepads = getConnectedGamepads();
             const now = performance.now();
@@ -641,22 +717,7 @@
                             }
 
                             if (elapsed >= runState.requiredHoldTime) {
-                                runState.holdStartTime = null; 
-                                runState.requiredHoldTime = null; 
-
-                                const pMin = Number(document.getElementById('p-swing').value) || 40;
-                                const pMax = Number(document.getElementById('target-pressure').value) || 90;
-                                const minP = Math.min(pMin, pMax);
-                                const maxP = Math.max(pMin, pMax);
-
-                                let newPeak = target;
-                                let attempts = 0;
-                                
-                                while (Math.abs(newPeak - target) < 15 && attempts < 20) {
-                                    newPeak = Math.floor(Math.random() * (maxP - minP + 1)) + minP;
-                                    attempts++;
-                                }
-                                runState.currentPeak = newPeak;
+                                resetHoldState();
                             }
                         }
                     } else {
@@ -668,73 +729,50 @@
             requestAnimationFrame(tick);
         }
 
-        function switchMode(newMode) {
-            state.activeMode = newMode;
-            const controls = document.getElementById('trail-controls');
+        // Initialization & Event Listeners
 
-            document.getElementById('btn-trail').classList.toggle('active', newMode === 'TRAIL');
-            document.getElementById('btn-hold').classList.toggle('active', newMode === 'HOLD');
-            document.getElementById('btn-flappy').classList.toggle('active', newMode === 'FLAPPY');
-
-            telemetryData = []; 
-
-            if (newMode === 'FLAPPY') {
-                controls.style.visibility = 'hidden';
-                flappyState.gates = [];
-                flappyState.score = 0;
-                flappyFrame = 0;
-                requestAnimationFrame(flappyTick);
-            } else {
-                controls.style.visibility = 'visible';
-                runState.holdStartTime = null; 
-            }
-        }
-
+        // UI Interactions
         changeDeviceBtn.addEventListener('pointerdown', () => setView('SETUP'));
+        document.getElementById('btn-trail').addEventListener('pointerdown', () => switchMode('TRAIL'));
+        document.getElementById('btn-hold').addEventListener('pointerdown', () => switchMode('HOLD'));
+        document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
 
+        // Randomizer Checkbox states
+        document.getElementById('rand-p-toggle').addEventListener('change', syncRandomControls);
+        document.getElementById('rand-t-toggle').addEventListener('change', syncRandomControls);
+
+        // System Events
+        window.addEventListener('resize', resizeCanvas);
+        
         window.addEventListener("gamepadconnected", () => {
             if (state.view === 'SETUP') renderSetup();
         });
+        
         window.addEventListener("gamepaddisconnected", (e) => {
             delete restingBaselines[e.gamepad.index];
             if (state.view === 'SETUP') renderSetup();
         });
 
-        function syncRandomControls() {
-            const pCheck = document.getElementById('rand-p-toggle');
-            const tCheck = document.getElementById('rand-t-toggle');
-            const pSwing = document.getElementById('p-swing');
-            const tSwing = document.getElementById('t-swing');
+        // Secret Easter Egg
+        pageTitle.addEventListener('pointerdown', () => {
+            if (state.view !== 'PRACTICE') return;
 
-            pSwing.disabled = !pCheck.checked;
-            tSwing.disabled = !tCheck.checked;
-        }
+            secretClicks++;
+            clearTimeout(secretTimer);
+            secretTimer = setTimeout(() => {
+                secretClicks = 0;
+            }, 1000);
 
-        document.getElementById('rand-p-toggle').addEventListener('change', syncRandomControls);
-        document.getElementById('rand-t-toggle').addEventListener('change', syncRandomControls);
-        syncRandomControls();
+            if (secretClicks === 5) {
+                secretClicks = 0;
+                switchMode('FLAPPY');
+            }
+        });
 
+        // 🏁 BOOT THE APP
         setView('SETUP');
-        tick();
-
-        document.getElementById('btn-trail').addEventListener('pointerdown', () => switchMode('TRAIL'));
-        document.getElementById('btn-hold').addEventListener('pointerdown', () => switchMode('HOLD'));
-        document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
-
-    pageTitle.addEventListener('pointerdown', () => {
-        if (state.view !== 'PRACTICE') return;
-
-        secretClicks++;
-        clearTimeout(secretTimer);
-        secretTimer = setTimeout(() => {
-            secretClicks = 0;
-        }, 1000);
-
-        if (secretClicks === 5) {
-            secretClicks = 0;
-            switchMode('FLAPPY');
-        }
-    });
+        syncRandomControls();
+        tick(); // Kicks off the requestAnimationFrame loop
     </script>
 </body>
 </html>
