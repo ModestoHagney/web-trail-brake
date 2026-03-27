@@ -7,7 +7,11 @@
 <body>
     <div class="shell">
         <div class="header">
-            <h1 id="page-title">Brake Pedal Setup</h1>
+            <div class="title-group">
+                <h1 id="main-title">Brake Trainer</h1>
+                <h2 id="sub-title">Pedal Setup</h2>
+                <p id="mode-description">Select pedal device. Press a pedal to highlight it.</p>
+            </div>
             
             <div id="mode-toolbar" class="toolbar" hidden>
                 <div class="mode-container">
@@ -35,7 +39,7 @@
                     </div>
                     <div class="input-group">
                         <label for="p-swing">Min:</label>
-                        <input type="number" id="p-swing" value="50" min="1" max="100" step="1" disabled>%
+                        <input type="number" id="p-swing" value="40" min="1" max="100" step="1" disabled>%
                     </div>
                     <div class="input-group">
                         <label for="target-pressure">Max:</label>
@@ -51,11 +55,11 @@
                     </div>
                     <div class="input-group">
                         <label for="t-swing">Min:</label>
-                        <input type="number" id="t-swing" value="2.0" min="0.5" max="10" step="0.1" disabled>s
+                        <input type="number" id="t-swing" value="1.5" min="0.5" max="10" step="0.1" disabled>s
                     </div>
                     <div class="input-group">
                         <label for="target-time">Max:</label>
-                        <input type="number" id="target-time" value="4.0" min="0.5" max="10" step="0.1">s
+                        <input type="number" id="target-time" value="3.0" min="0.5" max="10" step="0.1">s
                     </div>
                 </div>
 
@@ -81,7 +85,11 @@
         const canvas = document.getElementById('telemetry-canvas');
         const ctx = canvas.getContext('2d');
         const modeToolbar = document.getElementById('mode-toolbar');
-        const pageTitle = document.getElementById('page-title');
+        const pageTitle = document.getElementById('sub-title');
+        const modeDescription = document.getElementById('mode-description');
+        const controls = document.getElementById('trail-controls');
+        const pCheck = document.getElementById('rand-p-toggle');
+        const holdRow = document.getElementById('hold-tolerance-row');
 
     // Global States
 
@@ -98,7 +106,11 @@
             currentPeak: 80,
             currentTime: 3.0,
             holdStartTime: null,
-            requiredHoldTime: null
+            requiredHoldTime: null,
+            scoreResetTimer: null, // Tracks how long user has been out of hold zone
+            score: 0,
+            hiScore: 0,
+            scoreResetThreshold: 1500 // ms - how long user can be out of hold zone before score resets
         };
 
         const flappyState = {
@@ -111,10 +123,12 @@
             gateGap: 90,
             score: 0,
             hiScore: 0,
-            frame: 0
+            frame: 0,
+            level: 1
         };
 
         const restingBaselines = {};
+        const axisInversions = {};
         const windowSizeMs = 10000; 
         const pastOffsetMs = 5000;
 
@@ -127,8 +141,11 @@
             return Array.from(navigator.getGamepads()).filter(Boolean);
         }
 
-        function normalizeAxisValue(value) {
-            return ((value + 1) / 2) * 100;
+        function normalizeAxisValue(value, baseline = -1, inverted = false) {
+            const percent = ((value + 1) / 2) * 100;
+            const basePercent = ((baseline + 1) / 2) * 100;
+            if (inverted) return Math.max(0, basePercent - percent);
+            return Math.max(0, percent - basePercent);
         }
 
         function shortenDeviceName(name) {
@@ -171,13 +188,13 @@
             state.view = viewMode;
 
             if (viewMode === 'SETUP') {
-                pageTitle.textContent = "Brake Pedal Setup";
+                pageTitle.textContent = "Pedal Setup";
+                modeDescription.textContent = "Select pedal device. Press a pedal to highlight it.";
                 modeToolbar.hidden = true;
                 setupView.style.display = 'grid';
                 practiceView.style.display = 'none';
                 renderSetup();
             } else {
-                pageTitle.textContent = "Telemetry View";
                 modeToolbar.hidden = false;
                 setupView.style.display = 'none';
                 practiceView.style.display = 'flex';
@@ -200,14 +217,7 @@
                 return;
             }
 
-            const isHidden = state.selectedDeviceIndex !== null;
-            const instructionHTML = `
-                <div style="grid-column: 1 / -1; color: var(--muted); font-size: 0.95rem; margin-bottom: 12px; visibility: ${isHidden ? 'hidden' : 'visible'};">
-                    Select a device, if its not in the list press a pedal.
-                </div>
-            `;
-
-            setupView.innerHTML = instructionHTML + gamepads.map((gp) => {
+            setupView.innerHTML = gamepads.map((gp) => {
                 const isSelected = gp.index === state.selectedDeviceIndex;
                 const deviceColor = getControllerColor(gp.index);
 
@@ -219,9 +229,14 @@
                         ${gp.axes.map((_, idx) => `
                             <div class="axis-box" data-axis-index="${idx}" data-device-index="${gp.index}">
                                 <div class="pedal-meter">
-                                    <div class="pedal-fill" id="fill-${gp.index}-${idx}" style="height: 0%"></div>
+                                    <div class="pedal-fill" id="fill-${gp.index}-${idx}" 
+                                         style="height: ${normalizeAxisValue(gp.axes[idx], (restingBaselines[gp.index] || [])[idx], axisInversions[`${gp.index}-${idx}`])}%"></div>
                                 </div>
                                 <div class="axis-label">A${idx}</div>
+                                <div class="invert-toggle" data-inv-key="${gp.index}-${idx}">
+                                    <input type="checkbox" ${axisInversions[`${gp.index}-${idx}`] ? 'checked' : ''}>
+                                    <span>Inv</span>
+                                </div>
                             </div>
                         `).join('')}
                     </div>
@@ -258,21 +273,34 @@
 
         function switchMode(newMode) {
             state.activeMode = newMode;
-            const controls = document.getElementById('trail-controls');
-            const pCheck = document.getElementById('rand-p-toggle');
-            const holdRow = document.getElementById('hold-tolerance-row');
+
+        // Change the text based on what you click
+        if (newMode === 'TRAIL') {
+            pageTitle.textContent = "Trail Practice";
+            modeDescription.textContent = "Press the brake up to the target pressure. Trail off to the target line.";
+        } else if (newMode === 'HOLD') {
+            pageTitle.textContent = "Threshold Hold";
+            modeDescription.textContent = "Hold target pressure within the threshold.";
+        } else if (newMode === 'FLAPPY') {
+            pageTitle.textContent = "Flappy Brake";
+            modeDescription.textContent = "Try and beat your high score.";
+        }
 
             document.getElementById('btn-trail').classList.toggle('active', newMode === 'TRAIL');
             document.getElementById('btn-hold').classList.toggle('active', newMode === 'HOLD');
             document.getElementById('btn-flappy').classList.toggle('active', newMode === 'FLAPPY');
 
             telemetryData = []; 
+            runState.score = 0;
 
             if (newMode === 'FLAPPY') {
                 controls.style.visibility = 'hidden';
                 flappyState.gates = [];
                 flappyState.score = 0;
                 flappyState.frame = 0;
+                flappyState.level = 1;
+                flappyState.gateGap = 90;
+                flappyState.gateSpeed = 3;
                 requestAnimationFrame(flappyTick);
             } else {
                 controls.style.visibility = 'visible';
@@ -303,8 +331,11 @@
         function resizeCanvas() {
             if (state.view !== 'PRACTICE') return;
             const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width;
-            canvas.height = rect.height;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            // No need to set style width/height as CSS handles it (100%)
         }
 
         // Canvas Drawing
@@ -352,6 +383,15 @@
             ctx.textAlign = 'left';
             ctx.fillText(`${Math.round(currentBrake)}%`, 20, 40);
 
+            if (state.activeMode === 'HOLD') {
+                ctx.font = 'bold 18px sans-serif';
+                ctx.fillText(`Score: ${runState.score}`, 20, 70);
+                
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.fillText(`Best: ${runState.hiScore}`, 20, 92);
+            }
+
             const masterSec = now / 1000;
 
             // Auto-Randomizer for TRAIL mode only
@@ -381,7 +421,7 @@
                     runState.lastPLoopId = pLoopId;
                     const pCheck = document.getElementById('rand-p-toggle');
                     if (pCheck && pCheck.checked) {
-                        const pMin = Number(document.getElementById('p-swing').value) || 50;
+                        const pMin = Number(document.getElementById('p-swing').value) || 40;
                         const min = Math.min(pMin, baseP);
                         const max = Math.max(pMin, baseP);
                         runState.currentPeak = Math.floor(Math.random() * (max - min + 1)) + min;
@@ -490,13 +530,16 @@
         function resetFlappyGame() {
             flappyState.gates = [];
             flappyState.score = 0;
-            flappyFrame = 0;
+            flappyState.frame = 0;
+            flappyState.level = 1;
+            flappyState.gateGap = 90;
+            flappyState.gateSpeed = 3;
             requestAnimationFrame(flappyTick);
         }
 
         function resetHoldState() {
             const pMin = Number(document.getElementById('p-swing').value) || 40;
-            const pMax = Number(document.getElementById('target-pressure').value) || 90;
+            const pMax = Number(document.getElementById('target-pressure').value) || 80;
             const minP = Math.min(pMin, pMax);
             const maxP = Math.max(pMin, pMax);
 
@@ -527,7 +570,9 @@
             const gamepads = getConnectedGamepads();
             const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
             if (gp && state.selectedAxisIndex !== null) {
-                currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
+                const baseline = restingBaselines[gp.index] ? restingBaselines[gp.index][state.selectedAxisIndex] : -1;
+                const inverted = axisInversions[`${gp.index}-${state.selectedAxisIndex}`] || false;
+                currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex], baseline, inverted);
             }
 
             // 2. Background Grid
@@ -592,7 +637,7 @@
 
             // 4. Spawn Gates
             flappyState.frame++;
-            if (flappyFrame % 180 === 0) {
+            if (flappyState.frame % 180 === 0) {
                 const minGapY = 20; 
                 const maxGapY = h - flappyState.gateGap - 20; 
                 const gapTop = Math.random() * (maxGapY - minGapY) + minGapY;
@@ -633,11 +678,30 @@
                     if (flappyState.score > flappyState.hiScore) flappyState.hiScore = flappyState.score;
                     flappyState.gates = [];
                     flappyState.score = 0;
+                    flappyState.level = 1;
+                    flappyState.gateGap = 90;
+                    flappyState.gateSpeed = 3;
+                    break;
                 }
 
                 if (!gate.passed && gate.x < leadX) {
                     flappyState.score++;
                     gate.passed = true;
+
+                    // Level up every 10 gates
+                    const newLevel = Math.floor(flappyState.score / 10) + 1;
+                    if (newLevel > flappyState.level) {
+                        flappyState.level = newLevel;
+                        
+                        // Alternate difficulty scaling:
+                        if (newLevel % 2 === 0) {
+                            // Even levels: increase speed
+                            flappyState.gateSpeed += 0.5;
+                        } else {
+                            // Odd levels: shrink the gap (minimum 50px)
+                            flappyState.gateGap = Math.max(50, flappyState.gateGap - 10);
+                        }
+                    }
                 }
 
                 if (gate.x < 0) {
@@ -650,6 +714,9 @@
             ctx.textAlign = 'left';
             ctx.font = 'bold 20px sans-serif';
             ctx.fillText(`Score: ${flappyState.score}`, 20, 40);
+
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(`Level: ${flappyState.level}`, 140, 40);
             
             ctx.font = '14px sans-serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -682,7 +749,11 @@
                     } else {
                         gp.axes.forEach((val, idx) => {
                             const fillEl = document.getElementById(`fill-${gp.index}-${idx}`);
-                            if (fillEl) fillEl.style.height = `${normalizeAxisValue(val)}%`;
+                            if (fillEl) {
+                                const baseline = (restingBaselines[gp.index] || [])[idx];
+                                const inverted = axisInversions[`${gp.index}-${idx}`] || false;
+                                fillEl.style.height = `${normalizeAxisValue(val, baseline, inverted)}%`;
+                            }
                         });
                     }
                 });
@@ -692,7 +763,9 @@
                 const gamepads = getConnectedGamepads();
                 const gp = gamepads.find(g => g.index === state.selectedDeviceIndex);
                 if (gp && state.selectedAxisIndex !== null) {
-                    currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex]);
+                    const baseline = restingBaselines[gp.index] ? restingBaselines[gp.index][state.selectedAxisIndex] : -1;
+                    const inverted = axisInversions[`${gp.index}-${state.selectedAxisIndex}`] || false;
+                    currentBrake = normalizeAxisValue(gp.axes[state.selectedAxisIndex], baseline, inverted);
                 }
                 
                 drawCanvas(now, currentBrake);
@@ -702,6 +775,7 @@
                     const tolerance = Number(document.getElementById('hold-tolerance')?.value) || 3; 
 
                     if (currentBrake >= (target - tolerance) && currentBrake <= (target + tolerance)) {
+                    runState.scoreResetTimer = null; // Reset the penalty timer when back on target
                         if (!runState.holdStartTime) {
                             runState.holdStartTime = now; 
                         } else {
@@ -717,11 +791,19 @@
                             }
 
                             if (elapsed >= runState.requiredHoldTime) {
+                                runState.score++;
+                                if (runState.score > runState.hiScore) runState.hiScore = runState.score;
                                 resetHoldState();
                             }
                         }
                     } else {
-                        runState.holdStartTime = null; 
+                        runState.holdStartTime = null;
+                        // Start/update score reset timer if out of hold zone
+                        if (!runState.scoreResetTimer) runState.scoreResetTimer = now;
+                        if (runState.score > 0 && (now - runState.scoreResetTimer) > runState.scoreResetThreshold) {
+                            runState.score = 0;
+                            runState.scoreResetTimer = null; // Reset timer after score reset
+                        }
                     }
                 }
             }
@@ -732,7 +814,10 @@
         // Initialization & Event Listeners
 
         // UI Interactions
-        changeDeviceBtn.addEventListener('pointerdown', () => setView('SETUP'));
+        changeDeviceBtn.addEventListener('pointerdown', () => {
+            Object.keys(restingBaselines).forEach(key => delete restingBaselines[key]);
+            setView('SETUP');
+        });
         document.getElementById('btn-trail').addEventListener('pointerdown', () => switchMode('TRAIL'));
         document.getElementById('btn-hold').addEventListener('pointerdown', () => switchMode('HOLD'));
         document.getElementById('btn-flappy').addEventListener('pointerdown', () => switchMode('FLAPPY'));
@@ -750,23 +835,28 @@
         
         window.addEventListener("gamepaddisconnected", (e) => {
             delete restingBaselines[e.gamepad.index];
+            Object.keys(axisInversions).forEach(key => {
+                if (key.startsWith(`${e.gamepad.index}-`)) delete axisInversions[key];
+            });
             if (state.view === 'SETUP') renderSetup();
         });
 
         // Secret Easter Egg
-        pageTitle.addEventListener('pointerdown', () => {
-            if (state.view !== 'PRACTICE') return;
+        [document.getElementById('main-title'), pageTitle].forEach(el => {
+            el.addEventListener('pointerdown', () => {
+                if (state.view !== 'PRACTICE') return;
 
-            secretClicks++;
-            clearTimeout(secretTimer);
-            secretTimer = setTimeout(() => {
-                secretClicks = 0;
-            }, 1000);
+                secretClicks++;
+                clearTimeout(secretTimer);
+                secretTimer = setTimeout(() => {
+                    secretClicks = 0;
+                }, 1000);
 
-            if (secretClicks === 5) {
-                secretClicks = 0;
-                switchMode('FLAPPY');
-            }
+                if (secretClicks === 5) {
+                    secretClicks = 0;
+                    switchMode('FLAPPY');
+                }
+            });
         });
 
         // 🏁 BOOT THE APP

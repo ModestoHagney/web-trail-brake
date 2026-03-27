@@ -39,9 +39,20 @@ body {
 .header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 16px;
-    flex-shrink: 0;
+}
+
+.title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left; /* Forces text to the left */
+}
+
+.title-group p {
+    text-align: left; /* Overrides any inherited centering */
+    margin: 0;
 }
 
 .toolbar {
@@ -82,14 +93,25 @@ body {
     border-color: var(--accent-2);
 }
 
+h1, h2, p {
+    margin: 0; /* Clears browser default padding/margin */
+}
+
 h1 {
-    margin: 0;
     font-size: 1.5rem;
-    
-    /* Prevents blue highlighting on click */
-    -webkit-user-select: none; /* Safari */
-    -ms-user-select: none; /* IE 10+ */
-    user-select: none; /* Modern browsers */
+    color: var(--text);
+    user-select: none;
+}
+
+#sub-title {
+    font-size: 1.05rem;
+    color: var(--accent-2); /* Your blue variable */
+}
+
+#mode-description {
+    font-size: 0.88rem;
+    color: var(--muted); /* Your grey variable */
+    max-width: 500px; /* Keeps the text from stretching too wide */
 }
 
 button {
@@ -166,7 +188,7 @@ button:hover {
 }
 
 .axis-box {
-    flex: 0 0 55px;
+    flex: 0 0 70px;
     padding: 8px 4px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -197,6 +219,15 @@ button:hover {
 .axis-label {
     font-size: 0.7rem;
     color: var(--muted);
+}
+
+.invert-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 2px;
 }
 
 .controls-panel {
