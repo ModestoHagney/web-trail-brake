@@ -101,15 +101,14 @@
         };
 
         const runState = {
-            lastPLoopId: -1,
-            lastTLoopId: -1,
             currentPeak: 80,
             currentTime: 3.0,
+            trailCycleStart: 0,
             holdStartTime: null,
             requiredHoldTime: null,
             scoreResetTimer: null, // Tracks how long user has been out of hold zone
             score: 0,
-            hiScore: 0,
+            hiScore: parseInt(localStorage.getItem('brake_hold_hi')) || 0,
             scoreResetThreshold: 1500 // ms - how long user can be out of hold zone before score resets
         };
 
@@ -122,7 +121,7 @@
             gateWidth: 4,
             gateGap: 90,
             score: 0,
-            hiScore: 0,
+            hiScore: parseInt(localStorage.getItem('brake_flappy_hi')) || 0,
             frame: 0,
             level: 1
         };
@@ -310,6 +309,12 @@
                     pCheck.disabled = true;
                     resetHoldState();
                 } else {
+                    if (newMode === 'TRAIL') {
+                        runState.trailCycleStart = performance.now();
+                        // Initialize with current UI values
+                        runState.currentPeak = Number(document.getElementById('target-pressure').value) || 80;
+                        runState.currentTime = Number(document.getElementById('target-time').value) || 3.0;
+                    }
                     holdRow.style.display = 'none';
                     pCheck.disabled = false;
                     runState.holdStartTime = null; 
@@ -392,34 +397,29 @@
                 ctx.fillText(`Best: ${runState.hiScore}`, 20, 92);
             }
 
-            const masterSec = now / 1000;
-
-            // Auto-Randomizer for TRAIL mode only
+            // --- TRAIL MODE RANDOMIZER ---
             if (state.activeMode === 'TRAIL') {
-                const baseT = Number(document.getElementById('target-time').value) || 4.0;
-                const tLoopId = Math.floor(masterSec / baseT);
+                const elapsedMs = now - runState.trailCycleStart;
+                const targetMs = runState.currentTime * 1000;
 
-                if (tLoopId > runState.lastTLoopId) {
-                    runState.lastTLoopId = tLoopId;
+                if (elapsedMs >= targetMs) {
+                    runState.trailCycleStart = now;
+
+                    // Pick New Duration
                     const tCheck = document.getElementById('rand-t-toggle');
+                    const baseT = Number(document.getElementById('target-time').value) || 3.0;
                     if (tCheck && tCheck.checked) {
-                        const tMin = Number(document.getElementById('t-swing').value) || 2.0;
-                        const min = Math.min(tMin, baseT);
-                        const max = Math.max(tMin, baseT);
-                        const minScaled = Math.floor(min * 10);
-                        const maxScaled = Math.floor(max * 10);
-                        runState.currentTime = (Math.floor(Math.random() * (maxScaled - minScaled + 1)) + minScaled) / 10;
+                        const tMin = Number(document.getElementById('t-swing').value) || 1.5;
+                        const minS = Math.round(Math.min(tMin, baseT) * 10);
+                        const maxS = Math.round(Math.max(tMin, baseT) * 10);
+                        runState.currentTime = (Math.floor(Math.random() * (maxS - minS + 1)) + minS) / 10;
                     } else {
                         runState.currentTime = baseT;
                     }
-                }
 
-                const pIntervalSec = runState.currentTime;
-                const pLoopId = Math.floor(masterSec / pIntervalSec);
-
-                if (pLoopId > runState.lastPLoopId) {
-                    runState.lastPLoopId = pLoopId;
+                    // Pick New Peak
                     const pCheck = document.getElementById('rand-p-toggle');
+                    const baseP = Number(document.getElementById('target-pressure').value) || 80;
                     if (pCheck && pCheck.checked) {
                         const pMin = Number(document.getElementById('p-swing').value) || 40;
                         const min = Math.min(pMin, baseP);
@@ -445,10 +445,8 @@
 
             // 5. Draw Vertical Red Target Line (Trail mode only)
             if (state.activeMode === 'TRAIL') {
-                const pIntervalSec = runState.currentTime;
-                const pLoopId = Math.floor(masterSec / pIntervalSec);
-                const lineTimeSec = (pLoopId + 1) * runState.currentTime;
-                const timeDiffMs = (lineTimeSec - masterSec) * 1000;
+                const targetTime = runState.trailCycleStart + (runState.currentTime * 1000);
+                const timeDiffMs = targetTime - now;
                 const targetX = (w / 2) + (timeDiffMs / windowSizeMs) * w;
 
                 if (targetX > 0 && targetX < w) {
@@ -546,8 +544,8 @@
             const oldPeak = runState.currentPeak;
             let newPeak = oldPeak;
             let attempts = 0;
-            // Ensure the next target is at least 15% away from the current one for variety
-            while (Math.abs(newPeak - oldPeak) < 15 && attempts < 20) {
+            // Ensure the next target is at least 10% away from the current one for variety
+            while (Math.abs(newPeak - oldPeak) < 10 && attempts < 20) {
                 newPeak = Math.floor(Math.random() * (maxP - minP + 1)) + minP;
                 attempts++;
             }
@@ -675,7 +673,10 @@
                 const hitVertically = (leadY < gate.gapTop) || (leadY > gate.gapBottom);
 
                 if (hitHorizontally && hitVertically) {
-                    if (flappyState.score > flappyState.hiScore) flappyState.hiScore = flappyState.score;
+                    if (flappyState.score > flappyState.hiScore) {
+                        flappyState.hiScore = flappyState.score;
+                        localStorage.setItem('brake_flappy_hi', flappyState.hiScore);
+                    }
                     flappyState.gates = [];
                     flappyState.score = 0;
                     flappyState.level = 1;
@@ -792,7 +793,10 @@
 
                             if (elapsed >= runState.requiredHoldTime) {
                                 runState.score++;
-                                if (runState.score > runState.hiScore) runState.hiScore = runState.score;
+                                if (runState.score > runState.hiScore) {
+                                    runState.hiScore = runState.score;
+                                    localStorage.setItem('brake_hold_hi', runState.hiScore);
+                                }
                                 resetHoldState();
                             }
                         }
